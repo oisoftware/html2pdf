@@ -1478,15 +1478,57 @@ class Html2Pdf
     {
         // get the size of the image
         // WARNING : if URL, "allow_url_fopen" must turned to "on" in php.ini
+
+        // temporary file
+        $tmp_file = false;
+
+        // check if an inline image
         if(strpos($src, ';base64')) {
 
-            $src = str_replace('data:image/png;base64,', '', $src);
-            $src = str_replace('data:image/jpeg;base64', '', $src);
+            if (preg_match('/^data:image\/(\w+);base64,/', $src, $type)) {
+                $src = substr($src, strpos($src, ',') + 1);
+                $type = strtolower($type[1]); // jpg, png, gif
 
-            $infos=getimagesizefromstring(base64_decode($src));
+                // check valid image type
+                if (!in_array($type, [ 'jpg', 'jpeg', 'gif', 'png' ])) {
+                    $e = new ImageException('invalid image type');
+                    $e->setImage($src);
+                    throw $e;
+                }
+
+                // decode source
+                $src = base64_decode($src);
+
+                if ($src === false) {
+                    $e = new ImageException('base64_decode failed');
+                    $e->setImage($src);
+                    throw $e;
+
+                }
+            } else {
+                $e = new ImageException('did not match data URI with image data');
+                $e->setImage($src);
+                throw $e;
+
+            }
+
+            // set the tmp file path
+            $tmp_file = dirname(dirname(__FILE__)) . "/../../../runtime/HTML/" . md5(uniqid(rand(), true)) . "." . $type;
+
+            // save into temporary location
+            file_put_contents($tmp_file, $src);
+
+            // get the file details
+            $infos=@getimagesize($tmp_file);
+
+            // reset the source to the temporary file location
+            $src = $tmp_file;
 
         } else {
+
+            // standard image, get the info
             $infos=@getimagesize($src);
+
         }
 
         // if the image does not exist, or can not be loaded
@@ -1668,6 +1710,11 @@ class Html2Pdf
             $this->_maxX = max($this->_maxX, $x+$w);
             $this->_maxY = max($this->_maxY, $y+$h);
             $this->_maxH = max($this->_maxH, $h);
+        }
+
+        // check if temporary image
+        if($tmp_file) {
+            unlink($tmp_file); // remove it
         }
 
         return true;
